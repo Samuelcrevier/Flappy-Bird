@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #4ec0ca;
+            font-family: 'Press Start 2P', monospace;
+        }
+
+        #gameCanvas {
+            border: 2px solid #000;
+            cursor: pointer;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="720" height="480"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game variables
+        let logoScreen = true; // Réactivé avec lien externe
+        let logoTimer = 0;
+        let logoDisplayDuration = 150;
+        let gameStarted = false;
+        let gameOver = false;
+        let deathAnimation = false;
+        let deathAnimationComplete = false;
+        let score = 0;
+        let frameCount = 0;
+        
+        // Fade to black variables
+        let fadeToBlack = false;
+        let fadeOpacity = 0;
+        let fadeDuration = 60; // 1 seconde à 60 FPS
+        let fadeFrame = 0;
+        
+        // Death flash effect variables
+        let deathFlashOpacity = 0;
+        let deathFlashActive = false;
+        let deathFlashDuration = 15;
+        let deathFlashFrame = 0;
+        
+        // Game Over animation variables
+        let gameOverY = -50;  // Commence au-dessus de l'écran
+        let gameOverTargetY = 90;
+        let gameOverAnimating = false;
+        let gameOverAnimationComplete = false;
+        let gameOverDelay = 0;
+        let gameOverDelayFrames = 18; // ~300ms à 60fps
+        
+        // Score panel animation variables
+        let scorePanelY = canvas.height;  // Commence en bas de l'écran
+        let scorePanelTargetY = 0;  // Position relative au game over
+        let scorePanelAnimating = false;
+        let scorePanelAnimationComplete = false;
+        let scorePanelDelay = 0;
+        let scorePanelDelayFrames = 12; // ~200ms à 60fps
+        
+        // Medal and button visibility
+        let showMedalAndButton = false;
+        let medalDelay = 0;
+        let medalDelayFrames = 12; // ~200ms à 60fps
+        
+        // New badge flash variables
+        let newBadgeFlashCount = 0;
+        let newBadgeMaxFlashes = 5;
+        let newBadgeOffsetX = -127;
+        
+        // Score animation variables
+        let displayedScore = 0;
+        let scoreAnimationSpeed = 1;
+        let scoreAnimationActive = false;
+        let scoreAnimationDelay = 0;
+        
+        // Best score (session only)
+        let bestScore = 0;
+        
+        // Medal display configuration
+        const medalConfig = {
+            size: 50,           // Taille de la médaille
+            offsetX: 21,        // Distance du bord gauche du panneau
+            offsetY: 38,        // Distance du haut du panneau
+            maintainAspectRatio: true  // Garder les proportions de l'image
+        };
+        
+        // Play button hover state
+        let playButtonHover = false;
+
+        // Images
+        const images = {};
+        const imagesToLoad = [
+            'imagegear.PNG',  // Changé en majuscules
+            'backgroundday.png',
+            'base.png',
+            'pipegreenup.png',
+            'pipegreendown.png',
+            'yellowbirddownflap.png',
+            'yellowbirdmidflap.png',
+            'yellowbirdupflap.png',
+            '0.png', '1.png', '2.png', '3.png', '4.png',
+            '5.png', '6.png', '7.png', '8.png', '9.png',
+            'gameover.png',
+            'message.png',
+            'scoreframe.png',
+            'playbutton.png',
+            'newimage.png',
+            'goldmedal.png',
+            'silvermedal.png',
+            'bronzemedal.png'
+        ];
+
+        let imagesLoaded = 0;
+        let imageLoadErrors = [];
+
+        // Load all images with error handling
+        imagesToLoad.forEach(src => {
+            const img = new Image();
+            img.src = src;
+            img.onload = () => {
+                imagesLoaded++;
+                console.log(`Loaded: ${src} (${imagesLoaded}/${imagesToLoad.length})`);
+                if (imagesLoaded === imagesToLoad.length) {
+                    console.log('All images loaded successfully!');
+                    if (imageLoadErrors.length > 0) {
+                        console.warn('Some images failed to load:', imageLoadErrors);
+                    }
+                    gameLoop();
+                }
+            };
+            img.onerror = () => {
+                console.error(`Failed to load image: ${src}`);
+                imageLoadErrors.push(src);
+                imagesLoaded++;
+                if (imagesLoaded === imagesToLoad.length) {
+                    console.warn('Image loading complete with errors:', imageLoadErrors);
+                    gameLoop();
+                }
+            };
+            images[src] = img;
+        });
+
+        // Sound effects with error handling
+        const sounds = {
+            wing: new Audio('wing.ogg'),
+            die: new Audio('die.ogg'),
+            hit: new Audio('hit.ogg'),
+            point: new Audio('point.ogg'),
+            swoosh: new Audio('swoosh.ogg')
+        };
+
+        // Preload sounds
+        Object.keys(sounds).forEach(key => {
+            sounds[key].onerror = () => {
+                console.warn(`Failed to load sound: ${key}.ogg`);
+            };
+        });
+
+        // Function to play sounds safely
+        function playSound(soundName) {
+            if (sounds[soundName]) {
+                try {
+                    sounds[soundName].currentTime = 0;
+                    sounds[soundName].play().catch(e => console.log('Audio play failed:', e));
+                } catch (e) {
+                    console.log('Audio error:', e);
+                }
+            }
+        }
+
+        // Bird
+        const bird = {
+            x: 240,
+            y: 192,
+            width: 34,
+            height: 24,
+            velocity: 0,
+            gravity: 0.25,
+            jumpStrength: -5.3,
+            rotation: 0,
+            animationFrame: 0,
+            animationSpeed: 4,
+            idleY: 192,
+            idleAmplitude: 8,
+            idleSpeed: 0.05,
+            idleOffset: 0,
+            targetRotation: 0,
+            rotationSpeed: 4
+        };
+
+        const birdSprites = [
+            'yellowbirdupflap.png',
+            'yellowbirdmidflap.png',
+            'yellowbirddownflap.png'
+        ];
+
+        // Pipes
+        const pipes = [];
+        const pipeWidth = 52;
+        const pipeGap = 150;
+        const pipeSpeed = 2;
+        const pipeHeight = 400;
+        let pipeTimer = 0;
+        const pipeInterval = 90;
+
+        // Ground
+        const ground = {
+            x: 0,
+            y: 390,
+            height: 90,
+            speed: 2
+        };
+
+        // Input handling
+        canvas.addEventListener('click', (e) => {
+            if (logoScreen || fadeToBlack) {
+                return;
+            }
+            else if (!gameStarted && !gameOver) {
+                gameStarted = true;
+                bird.y = bird.idleY;
+                bird.velocity = bird.jumpStrength;
+                playSound('swoosh');
+            }
+            else if (!gameOver && gameStarted) {
+                bird.velocity = bird.jumpStrength;
+                playSound('wing');
+            }
+            else if (gameOver && showMedalAndButton) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                const playButtonWidth = 96;
+                const playButtonHeight = 42;
+                const scoreframeHeight = 108;
+                const playButtonY = scorePanelY + scoreframeHeight + 18;
+                const playButtonX = (canvas.width - playButtonWidth) / 2;
+                
+                if (mouseX >= playButtonX && mouseX <= playButtonX + playButtonWidth &&
+                    mouseY >= playButtonY && mouseY <= playButtonY + playButtonHeight) {
+                    playSound('swoosh');
+                    restartGame();
+                }
+            }
+        });
+        
+        // Mouse move for hover effect
+        canvas.addEventListener('mousemove', (e) => {
+            if (gameOver && showMedalAndButton) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                const playButtonWidth = 96;
+                const playButtonHeight = 42;
+                const scoreframeHeight = 108;
+                const playButtonY = scorePanelY + scoreframeHeight + 18;
+                const playButtonX = (canvas.width - playButtonWidth) / 2;
+                
+                playButtonHover = (mouseX >= playButtonX && mouseX <= playButtonX + playButtonWidth &&
+                                  mouseY >= playButtonY && mouseY <= playButtonY + playButtonHeight);
+                
+                canvas.style.cursor = playButtonHover ? 'pointer' : 'default';
+            } else {
+                canvas.style.cursor = 'pointer';
+                playButtonHover = false;
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                if (logoScreen || fadeToBlack) {
+                    return;
+                }
+                else if (!gameStarted && !gameOver) {
+                    gameStarted = true;
+                    bird.y = bird.idleY;
+                    bird.velocity = bird.jumpStrength;
+                    playSound('swoosh');
+                }
+                else if (!gameOver && gameStarted) {
+                    bird.velocity = bird.jumpStrength;
+                    playSound('wing');
+                }
+                else if (gameOver && showMedalAndButton) {
+                    playSound('swoosh');
+                    restartGame();
+                }
+            }
+        });
+
+        function createPipe() {
+            const minHeight = 120;
+            // maxHeight ensures bottomPipe (topHeight + pipeGap) doesn't go past ground.y
+            // ground.y (390) - pipeGap (150) = 240 maximum
+            const maxHeight = 220;
+            const topHeight = Math.random() * (maxHeight - minHeight) + minHeight;
+
+            pipes.push({
+                x: canvas.width,
+                topHeight: topHeight,
+                scored: false
+            });
+        }
+
+        function updateBird() {
+            if (!gameStarted && !deathAnimation) {
+                bird.idleOffset += bird.idleSpeed;
+                bird.y = bird.idleY + Math.sin(bird.idleOffset) * bird.idleAmplitude;
+                
+                frameCount++;
+                if (frameCount % bird.animationSpeed === 0) {
+                    bird.animationFrame = (bird.animationFrame + 1) % birdSprites.length;
+                }
+                return;
+            }
+
+            if (deathAnimation && !deathAnimationComplete) {
+                bird.velocity += bird.gravity * 1.5;
+                bird.y += bird.velocity;
+                
+                bird.targetRotation = 90;
+                if (bird.rotation < bird.targetRotation) {
+                    bird.rotation += 4;
+                    if (bird.rotation > bird.targetRotation) {
+                        bird.rotation = bird.targetRotation;
+                    }
+                }
+                
+                bird.animationFrame = 1;
+
+                if (bird.y + bird.height >= ground.y) {
+                    bird.y = ground.y - bird.height;
+                    bird.velocity = 0;
+                    bird.rotation = 90;
+                    deathAnimationComplete = true;
+                    
+                    displayedScore = 0;
+                    scoreAnimationActive = true;
+                    scoreAnimationDelay = 20;
+                }
+                return;
+            }
+
+            if (deathAnimationComplete) {
+                return;
+            }
+
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
+
+            if (bird.velocity < 0) {
+                bird.targetRotation = -25;
+            } else {
+                bird.targetRotation = Math.min(bird.velocity * 2.5, 90);
+            }
+            
+            const rotationDiff = bird.targetRotation - bird.rotation;
+            bird.rotation += rotationDiff * 0.2;
+
+            frameCount++;
+            if (frameCount % bird.animationSpeed === 0) {
+                bird.animationFrame = (bird.animationFrame + 1) % birdSprites.length;
+            }
+
+            if (!gameOver && bird.y + bird.height >= ground.y) {
+                bird.y = ground.y - bird.height;
+                playSound('hit');
+                endGame();
+            }
+
+            if (bird.y <= 0) {
+                bird.y = 0;
+                bird.velocity = 0;
+            }
+        }
+
+        function updatePipes() {
+            if (!gameStarted) return;
+
+            pipeTimer++;
+            if (pipeTimer >= pipeInterval) {
+                createPipe();
+                pipeTimer = 0;
+            }
+
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                pipes[i].x -= pipeSpeed;
+
+                if (!pipes[i].scored && bird.x > pipes[i].x + pipeWidth / 2) {
+                    pipes[i].scored = true;
+                    score++;
+                    playSound('point');
+                }
+
+                if (!deathAnimation && checkCollision(pipes[i])) {
+                    playSound('hit');
+                    endGame();
+                }
+
+                if (pipes[i].x + pipeWidth < 0) {
+                    pipes.splice(i, 1);
+                }
+            }
+        }
+
+        function checkCollision(pipe) {
+            const birdLeft = bird.x;
+            const birdRight = bird.x + bird.width;
+            const birdTop = bird.y;
+            const birdBottom = bird.y + bird.height;
+
+            const pipeLeft = pipe.x;
+            const pipeRight = pipe.x + pipeWidth;
+
+            if (birdRight > pipeLeft && birdLeft < pipeRight) {
+                if (birdTop < pipe.topHeight || birdBottom > pipe.topHeight + pipeGap) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        function updateGround() {
+            if (gameOver) return;
+            ground.x -= ground.speed;
+            if (ground.x <= -504) {
+                ground.x = 0;
+            }
+        }
+
+        function updateDeathFlash() {
+            if (deathFlashActive) {
+                deathFlashFrame++;
+                
+                if (deathFlashFrame < deathFlashDuration * 0.4) {
+                    deathFlashOpacity += 0.15;
+                    if (deathFlashOpacity > 0.9) deathFlashOpacity = 0.9;
+                }
+                else {
+                    deathFlashOpacity -= 0.08;
+                    if (deathFlashOpacity <= 0) {
+                        deathFlashOpacity = 0;
+                        deathFlashActive = false;
+                        deathFlashFrame = 0;
+                    }
+                }
+            }
+            
+            // Animation de chute de l'oiseau
+            if (deathAnimation && !deathAnimationComplete) {
+                if (bird.y < ground.y - bird.height / 2) {
+                    bird.velocity += bird.gravity;
+                    bird.y += bird.velocity;
+                    bird.rotation += 4;
+                } else {
+                    bird.y = ground.y - bird.height / 2;
+                    bird.rotation = 90;
+                    deathAnimationComplete = true;
+                    gameOverDelay = 0; // Commencer le compte à rebours
+                }
+            }
+            
+            // Délai avant de démarrer l'animation du Game Over
+            if (deathAnimationComplete && !gameOverAnimating && !gameOverAnimationComplete) {
+                gameOverDelay++;
+                if (gameOverDelay >= gameOverDelayFrames) {
+                    gameOverAnimating = true;
+                    playSound('swoosh');
+                }
+            }
+        }
+        
+        function updateGameOverAnimation() {
+            if (gameOverAnimating && !gameOverAnimationComplete) {
+                const speed = 8;
+                gameOverY += speed;
+                
+                if (gameOverY >= gameOverTargetY) {
+                    gameOverY = gameOverTargetY;
+                    gameOverAnimationComplete = true;
+                    scorePanelDelay = 0; // Commencer le compte à rebours
+                }
+            }
+            
+            // Délai avant de démarrer l'animation du panneau
+            if (gameOverAnimationComplete && !scorePanelAnimating && !scorePanelAnimationComplete) {
+                scorePanelDelay++;
+                if (scorePanelDelay >= scorePanelDelayFrames) {
+                    scorePanelAnimating = true;
+                    const goHeight = 38;
+                    scorePanelTargetY = gameOverTargetY + goHeight + 30;
+                    playSound('swoosh');
+                }
+            }
+        }
+        
+        function updateScorePanelAnimation() {
+            if (scorePanelAnimating && !scorePanelAnimationComplete) {
+                const speed = 12;
+                scorePanelY -= speed;
+                
+                if (scorePanelY <= scorePanelTargetY) {
+                    scorePanelY = scorePanelTargetY;
+                    scorePanelAnimationComplete = true;
+                    // Démarrer l'animation du score immédiatement
+                    scoreAnimationActive = true;
+                    displayedScore = 0;
+                }
+            }
+        }
+        
+        function updateScoreAnimation() {
+            if (!gameOver) {
+                displayedScore = score;
+                return;
+            }
+            
+            if (scoreAnimationActive) {
+                if (displayedScore < score) {
+                    displayedScore += scoreAnimationSpeed;
+                    if (displayedScore > score) {
+                        displayedScore = score;
+                    }
+                }
+                
+                // Quand le score atteint le maximum, afficher la médaille et le bouton
+                if (displayedScore >= score) {
+                    scoreAnimationActive = false;
+                    showMedalAndButton = true;
+                }
+            }
+        }
+
+        function drawBackground() {
+            const bgImg = images['backgroundday.png'];
+            if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+                ctx.drawImage(bgImg, 0, 0, canvas.width, ground.y);
+            } else {
+                ctx.fillStyle = '#4ec0ca';
+                ctx.fillRect(0, 0, canvas.width, ground.y);
+            }
+        }
+
+        function drawBird() {
+            const birdImg = images[birdSprites[bird.animationFrame]];
+            if (birdImg && birdImg.complete && birdImg.naturalWidth > 0) {
+                ctx.save();
+                ctx.translate(bird.x + bird.width / 2, bird.y + bird.height / 2);
+                ctx.rotate((bird.rotation * Math.PI) / 180);
+                ctx.drawImage(
+                    birdImg,
+                    -bird.width / 2,
+                    -bird.height / 2,
+                    bird.width,
+                    bird.height
+                );
+                ctx.restore();
+            } else {
+                // Fallback: draw a yellow circle
+                ctx.save();
+                ctx.translate(bird.x + bird.width / 2, bird.y + bird.height / 2);
+                ctx.rotate((bird.rotation * Math.PI) / 180);
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(0, 0, bird.width / 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        function drawPipes() {
+            pipes.forEach(pipe => {
+                const topPipeImg = images['pipegreenup.png'];
+                const bottomPipeImg = images['pipegreendown.png'];
+                
+                const topPipeY = pipe.topHeight - pipeHeight;
+                if (topPipeImg && topPipeImg.complete && topPipeImg.naturalWidth > 0) {
+                    ctx.drawImage(topPipeImg, pipe.x, topPipeY, pipeWidth, pipeHeight);
+                } else {
+                    ctx.fillStyle = '#00AA00';
+                    ctx.fillRect(pipe.x, topPipeY, pipeWidth, pipeHeight);
+                }
+
+                const bottomPipeY = pipe.topHeight + pipeGap;
+                const availableHeight = ground.y - bottomPipeY;
+                // Use the minimum between available height and pipe height to avoid going under ground
+                const actualHeight = Math.min(pipeHeight, availableHeight);
+                if (bottomPipeImg && bottomPipeImg.complete && bottomPipeImg.naturalWidth > 0) {
+                    // Draw from top of image (where the cap is) with limited height
+                    ctx.drawImage(
+                        bottomPipeImg, 
+                        0, 0, pipeWidth, actualHeight,  // source: take from top of image
+                        pipe.x, bottomPipeY, pipeWidth, actualHeight  // destination
+                    );
+                } else {
+                    ctx.fillStyle = '#00AA00';
+                    ctx.fillRect(pipe.x, bottomPipeY, pipeWidth, actualHeight);
+                }
+            });
+        }
+
+        function drawGround() {
+            const baseImg = images['base.png'];
+            const groundWidth = 504;
+            const numGrounds = Math.ceil(canvas.width / groundWidth) + 1;
+            
+            for (let i = 0; i < numGrounds; i++) {
+                if (baseImg && baseImg.complete && baseImg.naturalWidth > 0) {
+                    ctx.drawImage(baseImg, ground.x + (i * groundWidth), ground.y, groundWidth, ground.height);
+                } else {
+                    ctx.fillStyle = '#DEB887';
+                    ctx.fillRect(ground.x + (i * groundWidth), ground.y, groundWidth, ground.height);
+                }
+            }
+        }
+
+        function drawScore() {
+            if (!gameStarted || (gameOver && deathAnimationComplete)) {
+                return;
+            }
+            
+            const scoreStr = displayedScore.toString();
+            const digitWidth = 22;
+            const digitHeight = 32;
+            const totalWidth = scoreStr.length * digitWidth;
+            const startX = (canvas.width - totalWidth) / 2;
+            const startY = 45;
+
+            for (let i = 0; i < scoreStr.length; i++) {
+                const digit = scoreStr[i];
+                const digitImg = images[digit + '.png'];
+                if (digitImg && digitImg.complete && digitImg.naturalWidth > 0) {
+                    ctx.drawImage(digitImg, startX + i * digitWidth, startY, digitWidth, digitHeight);
+                } else {
+                    ctx.fillStyle = 'white';
+                    ctx.font = '28px Arial';
+                    ctx.fillText(digit, startX + i * digitWidth, startY + 28);
+                }
+            }
+        }
+        
+        function drawNumberWithSprites(number, x, y, digitWidth, digitHeight, align) {
+            const numStr = number.toString();
+            const totalWidth = numStr.length * digitWidth;
+            
+            let startX = x;
+            if (align === 'right') {
+                startX = x - totalWidth;
+            } else if (align === 'center') {
+                startX = x - totalWidth / 2;
+            }
+            
+            for (let i = 0; i < numStr.length; i++) {
+                const digit = numStr[i];
+                const digitImg = images[digit + '.png'];
+                if (digitImg && digitImg.complete && digitImg.naturalWidth > 0) {
+                    ctx.drawImage(digitImg, startX + i * digitWidth, y, digitWidth, digitHeight);
+                } else {
+                    ctx.fillStyle = 'white';
+                    ctx.font = '24px Arial';
+                    ctx.fillText(digit, startX + i * digitWidth, y + 24);
+                }
+            }
+        }
+
+        function drawStartMessage() {
+            if (!gameStarted && !logoScreen) {
+                const messageImg = images['message.png'];
+                const msgWidth = 166;
+                const msgHeight = 240;
+                const x = (canvas.width - msgWidth) / 2;
+                const y = (canvas.height - msgHeight) / 2 - 45;
+                
+                if (messageImg && messageImg.complete && messageImg.naturalWidth > 0) {
+                    ctx.drawImage(messageImg, x, y, msgWidth, msgHeight);
+                } else {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                    ctx.fillRect(x, y, msgWidth, msgHeight);
+                    ctx.fillStyle = 'white';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Click or press Space', canvas.width / 2, canvas.height / 2);
+                    ctx.fillText('to start!', canvas.width / 2, canvas.height / 2 + 18);
+                }
+            }
+        }
+
+        function drawLogoScreen() {
+            if (logoScreen) {
+                const logoImg = images['imagegear.PNG'];  // Changé en majuscules
+                if (logoImg && logoImg.complete && logoImg.naturalWidth > 0) {
+                    ctx.drawImage(logoImg, 0, 0, canvas.width, canvas.height);
+                } else {
+                    // Fallback logo screen
+                    ctx.fillStyle = '#4ec0ca';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = 'white';
+                    ctx.font = '48px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('FLAPPY BIRD', canvas.width / 2, canvas.height / 2);
+                }
+            }
+        }
+        
+        function updateLogoTimer() {
+            if (logoScreen) {
+                logoTimer++;
+                if (logoTimer >= logoDisplayDuration) {
+                    logoScreen = false;
+                    playSound('swoosh');
+                }
+            }
+        }
+
+        function drawGameOver() {
+            if (!gameOver || !deathAnimationComplete) return;
+            
+            const gameoverImg = images['gameover.png'];
+            const goWidth = 173;
+            const goHeight = 38;
+            const x = (canvas.width - goWidth) / 2;
+            
+            // Dessiner le Game Over avec animation de descente
+            if (gameOverAnimating || gameOverAnimationComplete) {
+                if (gameoverImg && gameoverImg.complete && gameoverImg.naturalWidth > 0) {
+                    ctx.drawImage(gameoverImg, x, gameOverY, goWidth, goHeight);
+                } else {
+                    ctx.fillStyle = 'red';
+                    ctx.font = '28px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('GAME OVER', canvas.width / 2, gameOverY + 24);
+                }
+            }
+            
+            // Dessiner le panneau de score avec animation de montée
+            if (scorePanelAnimating || scorePanelAnimationComplete) {
+                const scoreframeWidth = 210;
+                const scoreframeHeight = 108;
+                const panelX = (canvas.width - scoreframeWidth) / 2;
+                
+                const scoreframeImg = images['scoreframe.png'];
+                if (scoreframeImg && scoreframeImg.complete && scoreframeImg.naturalWidth > 0) {
+                    ctx.drawImage(scoreframeImg, panelX, scorePanelY, scoreframeWidth, scoreframeHeight);
+                } else {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                    ctx.fillRect(panelX, scorePanelY, scoreframeWidth, scoreframeHeight);
+                }
+                
+                // Afficher les scores
+                const scoreDigitWidth = 14;
+                const scoreDigitHeight = 22;
+                const scoreX = panelX + scoreframeWidth - 24;
+                const scoreY = scorePanelY + 33;
+                drawNumberWithSprites(displayedScore, scoreX, scoreY, scoreDigitWidth, scoreDigitHeight, 'right');
+                
+                const bestX = panelX + scoreframeWidth - 24;
+                const bestY = scorePanelY + 69;
+                drawNumberWithSprites(bestScore, bestX, bestY, scoreDigitWidth, scoreDigitHeight, 'right');
+                
+                // Afficher la médaille et le bouton seulement après l'animation du score
+                if (showMedalAndButton) {
+                    // Médaille
+                    let medalImg = null;
+                    if (score >= 75) {
+                        medalImg = images['goldmedal.png'];
+                    } else if (score >= 50) {
+                        medalImg = images['silvermedal.png'];
+                    } else if (score >= 25) {
+                        medalImg = images['bronzemedal.png'];
+                    }
+                    
+                    if (medalImg && medalImg.complete && medalImg.naturalWidth > 0) {
+                        const medalX = panelX + medalConfig.offsetX;
+                        const medalY = scorePanelY + medalConfig.offsetY;
+                        
+                        if (medalConfig.maintainAspectRatio) {
+                            const aspectRatio = medalImg.naturalWidth / medalImg.naturalHeight;
+                            let medalWidth = medalConfig.size;
+                            let medalHeight = medalConfig.size;
+                            
+                            if (aspectRatio > 1) {
+                                medalHeight = medalWidth / aspectRatio;
+                            } else if (aspectRatio < 1) {
+                                medalWidth = medalHeight * aspectRatio;
+                            }
+                            
+                            ctx.drawImage(medalImg, medalX, medalY, medalWidth, medalHeight);
+                        } else {
+                            ctx.drawImage(medalImg, medalX, medalY, medalConfig.size, medalConfig.size);
+                        }
+                    }
+                    
+                    // Badge "NEW"
+                    if (score === bestScore && score > 0) {
+                        const currentFlashCycle = Math.floor(frameCount / 30);
+                        if (currentFlashCycle < newBadgeMaxFlashes) {
+                            const flashVisible = Math.floor(frameCount / 15) % 2 === 0;
+                            if (flashVisible) {
+                                const newImg = images['newimage.png'];
+                                if (newImg && newImg.complete && newImg.naturalWidth > 0) {
+                                    const newWidth = 19;
+                                    const newHeight = 8;
+                                    const newX = panelX + scoreframeWidth - 76;
+                                    const newY = scorePanelY + 58;
+                                    ctx.drawImage(newImg, newX, newY, newWidth, newHeight);
+                                }
+                            }
+                        } else {
+                            const newImg = images['newimage.png'];
+                            if (newImg && newImg.complete && newImg.naturalWidth > 0) {
+                                const newWidth = 19;
+                                const newHeight = 8;
+                                const newX = panelX + scoreframeWidth - 76;
+                                const newY = scorePanelY + 58;
+                                ctx.drawImage(newImg, newX, newY, newWidth, newHeight);
+                            }
+                        }
+                    }
+                    
+                    // Bouton Play
+                    const playButtonWidth = 96;
+                    const playButtonHeight = 42;
+                    const playButtonY = scorePanelY + scoreframeHeight + 18;
+                    const playButtonX = (canvas.width - playButtonWidth) / 2;
+                    
+                    const playButtonImg = images['playbutton.png'];
+                    ctx.save();
+                    if (playButtonHover) {
+                        const scale = 1.05;
+                        ctx.translate(playButtonX + playButtonWidth / 2, playButtonY + playButtonHeight / 2);
+                        ctx.scale(scale, scale);
+                        if (playButtonImg && playButtonImg.complete && playButtonImg.naturalWidth > 0) {
+                            ctx.drawImage(playButtonImg, -playButtonWidth / 2, -playButtonHeight / 2, playButtonWidth, playButtonHeight);
+                        } else {
+                            ctx.fillStyle = '#FFD700';
+                            ctx.fillRect(-playButtonWidth / 2, -playButtonHeight / 2, playButtonWidth, playButtonHeight);
+                        }
+                    } else {
+                        if (playButtonImg && playButtonImg.complete && playButtonImg.naturalWidth > 0) {
+                            ctx.drawImage(playButtonImg, playButtonX, playButtonY, playButtonWidth, playButtonHeight);
+                        } else {
+                            ctx.fillStyle = '#FFD700';
+                            ctx.fillRect(playButtonX, playButtonY, playButtonWidth, playButtonHeight);
+                        }
+                    }
+                    ctx.restore();
+                }
+            }
+        }
+
+        function drawDeathFlash() {
+            if (deathFlashActive && deathFlashOpacity > 0) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(255, 255, 255, ' + deathFlashOpacity + ')';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.restore();
+            }
+        }
+        
+        function drawFadeToBlack() {
+            if (fadeToBlack && fadeOpacity > 0) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 0, 0, ' + fadeOpacity + ')';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.restore();
+            }
+        }
+        
+        function updateFadeToBlack() {
+            if (fadeToBlack) {
+                fadeFrame++;
+                fadeOpacity = Math.min(1, fadeFrame / fadeDuration);
+            }
+        }
+
+        function endGame() {
+            if (gameOver) return;
+            gameOver = true;
+            deathAnimation = true;
+            deathFlashActive = true;
+            deathFlashOpacity = 0;
+            deathFlashFrame = 0;
+            
+            // Initialiser les variables d'animation
+            gameOverY = -50;
+            gameOverAnimating = false;
+            gameOverAnimationComplete = false;
+            gameOverDelay = 0;
+            
+            scorePanelY = canvas.height;
+            scorePanelAnimating = false;
+            scorePanelAnimationComplete = false;
+            scorePanelDelay = 0;
+            
+            showMedalAndButton = false;
+            medalDelay = 0;
+            displayedScore = 0;
+            scoreAnimationActive = false;
+            
+            if (score > bestScore) {
+                bestScore = score;
+            }
+            
+            playSound('die');
+        }
+
+        function restartGame() {
+            // Démarrer le fondu au noir
+            fadeToBlack = true;
+            fadeOpacity = 0;
+            fadeFrame = 0;
+            
+            // Attendre la fin du fondu avant de réinitialiser
+            setTimeout(() => {
+                gameOver = false;
+                gameStarted = false;
+                deathAnimation = false;
+                deathAnimationComplete = false;
+                deathFlashActive = false;
+                deathFlashOpacity = 0;
+                deathFlashFrame = 0;
+                
+                // Réinitialiser les animations de l'écran de mort
+                gameOverY = -50;
+                gameOverAnimating = false;
+                gameOverAnimationComplete = false;
+                gameOverDelay = 0;
+                
+                scorePanelY = canvas.height;
+                scorePanelAnimating = false;
+                scorePanelAnimationComplete = false;
+                scorePanelDelay = 0;
+                
+                showMedalAndButton = false;
+                medalDelay = 0;
+                
+                score = 0;
+                displayedScore = 0;
+                scoreAnimationActive = false;
+                scoreAnimationDelay = 0;
+                bird.y = 192;
+                bird.idleY = 192;
+                bird.idleOffset = 0;
+                bird.velocity = 0;
+                bird.rotation = 0;
+                bird.targetRotation = 0;
+                pipes.length = 0;
+                pipeTimer = 0;
+                ground.x = 0;
+                playButtonHover = false;
+                logoScreen = false;
+                
+                // Réinitialiser le fondu
+                fadeToBlack = false;
+                fadeOpacity = 0;
+                fadeFrame = 0;
+            }, fadeDuration * (1000 / 60)); // Convertir frames en millisecondes
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (logoScreen) {
+                drawLogoScreen();
+                updateLogoTimer();
+            } else {
+                drawBackground();
+                drawPipes();
+                drawGround();
+                drawBird();
+                drawScore();
+                drawGameOver();
+                drawStartMessage();
+                
+                drawDeathFlash();
+                drawFadeToBlack(); // Dessiner le fondu au noir par-dessus tout
+
+                updateBird();
+                updateGround();
+                updateDeathFlash();
+                updateGameOverAnimation();
+                updateScorePanelAnimation();
+                updateScoreAnimation();
+                updateFadeToBlack(); // Mettre à jour le fondu
+
+                if (!gameOver && gameStarted) {
+                    updatePipes();
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
