@@ -93,6 +93,11 @@
         // Best score (session only)
         let bestScore = 0;
         
+        // Message slide animation
+        let messageY = 192;
+        let messageTargetY = 192;
+        let messageAnimating = false;
+        
         // Medal display configuration
         const medalConfig = {
             size: 50,           // Taille de la médaille
@@ -103,6 +108,18 @@
         
         // Play button hover state
         let playButtonHover = false;
+        
+        // Settings menu variables
+        let settingsMenuOpen = false;
+        let settingsMenuX = -200; // Start off-screen (left)
+        let settingsMenuTargetX = 20; // Final position
+        let settingsMenuAnimating = false;
+        let settingsRotation = 0;
+        let settingsRotationTarget = 0;
+        let githubButtonHover = false;
+        let settingsWheelX = 15; // Settings wheel position
+        let settingsWheelTargetX = 15;
+        let settingsWheelAnimating = false;
 
         // Images
         const images = {};
@@ -124,7 +141,12 @@
             'newimage.png',
             'goldmedal.png',
             'silvermedal.png',
-            'bronzemedal.png'
+            'bronzemedal.png',
+            'setting.png',
+            'frameempty.png',
+            'github1.png',
+            'github2.png',
+            'close.png'
         ];
 
         let imagesLoaded = 0;
@@ -230,24 +252,72 @@
 
         // Input handling
         canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
             if (logoScreen || fadeToBlack) {
                 return;
             }
-            else if (!gameStarted && !gameOver) {
-                gameStarted = true;
-                bird.y = bird.idleY;
-                bird.velocity = bird.jumpStrength;
-                playSound('swoosh');
+            
+            // Check settings button click (only in idle menu)
+            if (!gameStarted && !gameOver) {
+                const settingSize = 50;
+                const settingY = 15;
+                
+                if (mouseX >= settingsWheelX && mouseX <= settingsWheelX + settingSize &&
+                    mouseY >= settingY && mouseY <= settingY + settingSize) {
+                    // Toggle settings menu
+                    settingsMenuOpen = !settingsMenuOpen;
+                    settingsMenuAnimating = true;
+                    settingsRotationTarget += 360; // Rotate one full turn
+                    playSound('swoosh');
+                    return; // Don't start game
+                }
+                
+                // Check close button click (if menu is open)
+                if (settingsMenuOpen) {
+                    const frameWidth = 113;
+                    const frameY = 80;
+                    const closeSize = 20;
+                    const closeX = settingsMenuX + frameWidth - closeSize - 5;
+                    const closeY = frameY + 5;
+                    
+                    if (mouseX >= closeX && mouseX <= closeX + closeSize &&
+                        mouseY >= closeY && mouseY <= closeY + closeSize) {
+                        settingsMenuOpen = false;
+                        settingsMenuAnimating = true;
+                        playSound('swoosh');
+                        return;
+                    }
+                    
+                    // Check GitHub button click
+                    const frameHeight = 100;
+                    const githubSize = 40;
+                    const githubX = settingsMenuX + (frameWidth - githubSize) / 2;
+                    const githubY = frameY + 15;
+                    
+                    if (mouseX >= githubX && mouseX <= githubX + githubSize &&
+                        mouseY >= githubY && mouseY <= githubY + githubSize) {
+                        window.open('https://github.com/Samuelcrevier/Flappy-Bird', '_blank');
+                        playSound('swoosh');
+                        return;
+                    }
+                }
+                
+                // Only start game if menu is not open
+                if (!settingsMenuOpen) {
+                    gameStarted = true;
+                    bird.y = bird.idleY;
+                    bird.velocity = bird.jumpStrength;
+                    playSound('swoosh');
+                }
             }
             else if (!gameOver && gameStarted) {
                 bird.velocity = bird.jumpStrength;
                 playSound('wing');
             }
             else if (gameOver && showMedalAndButton) {
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                
                 const playButtonWidth = 96;
                 const playButtonHeight = 42;
                 const scoreframeHeight = 108;
@@ -264,11 +334,54 @@
         
         // Mouse move for hover effect
         canvas.addEventListener('mousemove', (e) => {
-            if (gameOver && showMedalAndButton) {
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // Reset hover states
+            let isHoveringAnyButton = false;
+            githubButtonHover = false;
+            
+            // Check settings menu hovers (only in idle menu)
+            if (!gameStarted && !gameOver && settingsMenuOpen) {
+                const frameWidth = 113;
+                const frameHeight = 100;
+                const frameY = 80;
+                const githubSize = 40;
+                const githubX = settingsMenuX + (frameWidth - githubSize) / 2;
+                const githubY = frameY + 15;
                 
+                // Check GitHub button hover
+                if (mouseX >= githubX && mouseX <= githubX + githubSize &&
+                    mouseY >= githubY && mouseY <= githubY + githubSize) {
+                    githubButtonHover = true;
+                    isHoveringAnyButton = true;
+                }
+                
+                // Check close button hover
+                const closeSize = 20;
+                const closeX = settingsMenuX + frameWidth - closeSize - 5;
+                const closeY = frameY + 5;
+                
+                if (mouseX >= closeX && mouseX <= closeX + closeSize &&
+                    mouseY >= closeY && mouseY <= closeY + closeSize) {
+                    isHoveringAnyButton = true;
+                }
+            }
+            
+            // Check settings button hover (only in idle menu)
+            if (!gameStarted && !gameOver) {
+                const settingSize = 50;
+                const settingY = 15;
+                
+                if (mouseX >= settingsWheelX && mouseX <= settingsWheelX + settingSize &&
+                    mouseY >= settingY && mouseY <= settingY + settingSize) {
+                    isHoveringAnyButton = true;
+                }
+            }
+            
+            // Check play button hover
+            if (gameOver && showMedalAndButton) {
                 const playButtonWidth = 96;
                 const playButtonHeight = 42;
                 const scoreframeHeight = 108;
@@ -278,11 +391,12 @@
                 playButtonHover = (mouseX >= playButtonX && mouseX <= playButtonX + playButtonWidth &&
                                   mouseY >= playButtonY && mouseY <= playButtonY + playButtonHeight);
                 
-                canvas.style.cursor = playButtonHover ? 'pointer' : 'default';
-            } else {
-                canvas.style.cursor = 'pointer';
-                playButtonHover = false;
+                if (playButtonHover) {
+                    isHoveringAnyButton = true;
+                }
             }
+            
+            canvas.style.cursor = isHoveringAnyButton ? 'pointer' : 'default';
         });
 
         document.addEventListener('keydown', (e) => {
@@ -690,18 +804,60 @@
                 const msgWidth = 166;
                 const msgHeight = 240;
                 const x = (canvas.width - msgWidth) / 2;
-                const y = (canvas.height - msgHeight) / 2 - 45;
                 
                 if (messageImg && messageImg.complete && messageImg.naturalWidth > 0) {
-                    ctx.drawImage(messageImg, x, y, msgWidth, msgHeight);
+                    ctx.drawImage(messageImg, x, messageY, msgWidth, msgHeight);
                 } else {
                     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                    ctx.fillRect(x, y, msgWidth, msgHeight);
+                    ctx.fillRect(x, messageY, msgWidth, msgHeight);
                     ctx.fillStyle = 'white';
                     ctx.font = '14px Arial';
                     ctx.textAlign = 'center';
-                    ctx.fillText('Click or press Space', canvas.width / 2, canvas.height / 2);
-                    ctx.fillText('to start!', canvas.width / 2, canvas.height / 2 + 18);
+                    ctx.fillText('Click or press Space', canvas.width / 2, messageY + msgHeight / 2);
+                    ctx.fillText('to start!', canvas.width / 2, messageY + msgHeight / 2 + 18);
+                }
+            }
+            // Draw message sliding up when game starts
+            else if (gameStarted && !gameOver && messageAnimating) {
+                const messageImg = images['message.png'];
+                const msgWidth = 166;
+                const msgHeight = 240;
+                const x = (canvas.width - msgWidth) / 2;
+                
+                if (messageImg && messageImg.complete && messageImg.naturalWidth > 0) {
+                    ctx.drawImage(messageImg, x, messageY, msgWidth, msgHeight);
+                }
+            }
+        }
+        
+        function updateMessageAnimation() {
+            // Start sliding up when game starts
+            if (gameStarted && !gameOver) {
+                if (messageTargetY !== -300) {
+                    messageTargetY = -300; // Slide off screen upward
+                    messageAnimating = true;
+                }
+            } else if (!gameStarted && !gameOver) {
+                // Reset to center position
+                const msgHeight = 240;
+                const centerY = (canvas.height - msgHeight) / 2 - 45;
+                if (messageTargetY !== centerY) {
+                    messageTargetY = centerY;
+                    messageY = centerY;
+                    messageAnimating = false;
+                }
+            }
+            
+            // Animate the slide
+            if (messageAnimating) {
+                const diff = Math.abs(messageY - messageTargetY);
+                if (diff > 0.5) {
+                    messageY += (messageTargetY - messageY) * 0.15;
+                } else {
+                    messageY = messageTargetY;
+                    if (gameStarted) {
+                        messageAnimating = false;
+                    }
                 }
             }
         }
@@ -869,6 +1025,133 @@
             }
         }
 
+        function drawSettingsButton() {
+            // Show settings button when in idle menu or during gameplay
+            if ((!gameStarted && !gameOver && !logoScreen) || (gameStarted && !gameOver && !logoScreen)) {
+                const settingImg = images['setting.png'];
+                if (settingImg && settingImg.complete && settingImg.naturalWidth > 0) {
+                    // Settings button in top-LEFT corner (resized from 425x425)
+                    const settingSize = 50; // Resized to be reasonable
+                    const settingY = 15;
+                    
+                    ctx.save();
+                    // Apply rotation animation
+                    ctx.translate(settingsWheelX + settingSize / 2, settingY + settingSize / 2);
+                    ctx.rotate(settingsRotation * Math.PI / 180);
+                    ctx.drawImage(settingImg, -settingSize / 2, -settingSize / 2, settingSize, settingSize);
+                    ctx.restore();
+                }
+            }
+        }
+        
+        function updateSettingsRotation() {
+            // Smooth rotation animation
+            if (Math.abs(settingsRotation - settingsRotationTarget) > 0.5) {
+                settingsRotation += (settingsRotationTarget - settingsRotation) * 0.15;
+            } else {
+                settingsRotation = settingsRotationTarget;
+            }
+        }
+        
+        function updateSettingsWheelPosition() {
+            // Animate settings wheel sliding
+            if (settingsWheelAnimating) {
+                const diff = Math.abs(settingsWheelX - settingsWheelTargetX);
+                if (diff > 0.5) {
+                    settingsWheelX += (settingsWheelTargetX - settingsWheelX) * 0.2;
+                } else {
+                    settingsWheelX = settingsWheelTargetX;
+                    settingsWheelAnimating = false;
+                }
+            }
+        }
+        
+        function drawSettingsMenu() {
+            if (settingsMenuOpen || settingsMenuAnimating) {
+                const frameImg = images['frameempty.png'];
+                const closeImg = images['close.png'];
+                const githubImg = githubButtonHover ? images['github2.png'] : images['github1.png'];
+                
+                if (frameImg && frameImg.complete && frameImg.naturalWidth > 0) {
+                    // Draw frame (113x100)
+                    const frameWidth = 113;
+                    const frameHeight = 100;
+                    const frameY = 80; // Position below the settings wheel
+                    
+                    ctx.save();
+                    ctx.drawImage(frameImg, settingsMenuX, frameY, frameWidth, frameHeight);
+                    
+                    // Draw "made by samuel crevier" text
+                    ctx.fillStyle = '#000000';
+                    ctx.font = '7px Arial';
+                    ctx.textAlign = 'center';
+                    const textX = settingsMenuX + frameWidth / 2;
+                    const textY = frameY + frameHeight - 10;
+                    ctx.fillText('made by', textX, textY - 8);
+                    ctx.fillText('samuel crevier', textX, textY);
+                    
+                    // Draw GitHub button inside frame
+                    if (githubImg && githubImg.complete && githubImg.naturalWidth > 0) {
+                        const githubSize = 40;
+                        const githubX = settingsMenuX + (frameWidth - githubSize) / 2;
+                        const githubY = frameY + 15;
+                        
+                        if (githubButtonHover) {
+                            // Slight scale effect on hover
+                            ctx.translate(githubX + githubSize / 2, githubY + githubSize / 2);
+                            ctx.scale(1.1, 1.1);
+                            ctx.drawImage(githubImg, -githubSize / 2, -githubSize / 2, githubSize, githubSize);
+                        } else {
+                            ctx.drawImage(githubImg, githubX, githubY, githubSize, githubSize);
+                        }
+                    }
+                    
+                    ctx.restore();
+                    
+                    // Draw close button at top-right of frame
+                    if (closeImg && closeImg.complete && closeImg.naturalWidth > 0) {
+                        const closeSize = 20;
+                        const closeX = settingsMenuX + frameWidth - closeSize - 5;
+                        const closeY = frameY + 5;
+                        ctx.drawImage(closeImg, closeX, closeY, closeSize, closeSize);
+                    }
+                }
+            }
+        }
+        
+        function updateSettingsMenuAnimation() {
+            // Auto-close menu and slide wheel out when game starts
+            if (gameStarted && settingsMenuOpen) {
+                settingsMenuOpen = false;
+                settingsMenuAnimating = true;
+            }
+            
+            // Slide wheel out when game starts
+            if (gameStarted && !gameOver) {
+                if (settingsWheelTargetX !== -70) {
+                    settingsWheelTargetX = -70; // Slide off screen to left
+                    settingsWheelAnimating = true;
+                }
+            } else if (!gameStarted && !gameOver) {
+                if (settingsWheelTargetX !== 15) {
+                    settingsWheelTargetX = 15; // Back to normal position
+                    settingsWheelAnimating = true;
+                }
+            }
+            
+            if (settingsMenuAnimating) {
+                const targetX = settingsMenuOpen ? settingsMenuTargetX : -200;
+                const diff = Math.abs(settingsMenuX - targetX);
+                
+                if (diff > 0.5) {
+                    settingsMenuX += (targetX - settingsMenuX) * 0.2;
+                } else {
+                    settingsMenuX = targetX;
+                    settingsMenuAnimating = false;
+                }
+            }
+        }
+
         function drawDeathFlash() {
             if (deathFlashActive && deathFlashOpacity > 0) {
                 ctx.save();
@@ -971,6 +1254,21 @@
                 playButtonHover = false;
                 logoScreen = false;
                 
+                // Reset settings menu
+                settingsMenuOpen = false;
+                settingsMenuX = -200;
+                settingsMenuAnimating = false;
+                githubButtonHover = false;
+                settingsWheelX = 15;
+                settingsWheelTargetX = 15;
+                settingsWheelAnimating = false;
+                
+                // Reset message position
+                const msgHeight = 240;
+                messageY = (canvas.height - msgHeight) / 2 - 45;
+                messageTargetY = messageY;
+                messageAnimating = false;
+                
                 // Réinitialiser le fondu
                 fadeToBlack = false;
                 fadeOpacity = 0;
@@ -992,6 +1290,8 @@
                 drawScore();
                 drawGameOver();
                 drawStartMessage();
+                drawSettingsButton();
+                drawSettingsMenu();
                 
                 drawDeathFlash();
                 drawFadeToBlack(); // Dessiner le fondu au noir par-dessus tout
@@ -1003,6 +1303,10 @@
                 updateScorePanelAnimation();
                 updateScoreAnimation();
                 updateFadeToBlack(); // Mettre à jour le fondu
+                updateSettingsRotation();
+                updateSettingsMenuAnimation();
+                updateSettingsWheelPosition();
+                updateMessageAnimation();
 
                 if (!gameOver && gameStarted) {
                     updatePipes();
